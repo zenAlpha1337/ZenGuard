@@ -1,5 +1,6 @@
 package com.zenguard.app.core.root
 
+import android.content.Context
 import android.util.Log
 import com.topjohnwu.superuser.Shell
 import java.io.File
@@ -128,6 +129,79 @@ object RootShellManager {
             hasIptables() -> FirewallBackend.IPTABLES
             else -> FirewallBackend.NONE
         }
+    }
+
+    /**
+     * Resolves the location of the sing-box binary on the device.
+     * Searches in nativeLibraryDir (e.g. libsing-box.so extracted from APK),
+     * app internal files directories, common system paths, and system PATH.
+     * Ensures executable permissions (`chmod 755`) before returning.
+     *
+     * @param context Application context used to query nativeLibraryDir and filesDir.
+     * @return File pointing to executable sing-box binary, or null if not found.
+     */
+    fun resolveSingBoxBinary(context: Context): File? {
+        // 1. App's nativeLibraryDir (e.g. libsing-box.so)
+        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
+        val candidateNames = listOf("libsing-box.so", "libsingbox.so", "sing-box")
+        for (name in candidateNames) {
+            val file = File(nativeDir, name)
+            if (file.exists()) {
+                if (!file.canExecute()) {
+                    file.setExecutable(true, false)
+                }
+                exec("chmod 755 \"${file.absolutePath}\"")
+                return file
+            }
+        }
+
+        // 2. App internal files directories
+        val filesDir = context.filesDir
+        val internalCandidates = listOf(
+            File(filesDir, "sing-box"),
+            File(filesDir, "libsing-box.so"),
+            File(File(filesDir, "bin"), "sing-box")
+        )
+        for (file in internalCandidates) {
+            if (file.exists()) {
+                if (!file.canExecute()) {
+                    file.setExecutable(true, false)
+                }
+                exec("chmod 755 \"${file.absolutePath}\"")
+                return file
+            }
+        }
+
+        // 3. Common rooted device binaries & paths
+        val systemPaths = listOf(
+            "/data/local/tmp/sing-box",
+            "/system/bin/sing-box",
+            "/system/xbin/sing-box"
+        )
+        for (path in systemPaths) {
+            val file = File(path)
+            if (file.exists()) {
+                exec("chmod 755 \"${file.absolutePath}\"")
+                return file
+            }
+        }
+
+        // 4. Query PATH via root shell
+        try {
+            val whichRes = exec("which sing-box")
+            if (whichRes.isSuccess && whichRes.out.isNotEmpty()) {
+                val foundPath = whichRes.out.first().trim()
+                if (foundPath.isNotEmpty()) {
+                    val file = File(foundPath)
+                    if (file.exists()) {
+                        exec("chmod 755 \"${file.absolutePath}\"")
+                        return file
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        return null
     }
 
     /**
