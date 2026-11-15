@@ -49,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +59,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.topjohnwu.superuser.Shell
 import com.zenguard.app.core.model.ProxyMode
@@ -65,6 +67,8 @@ import com.zenguard.app.core.model.VpnState
 import com.zenguard.app.core.nowbar.NowBarNotificationManager
 import com.zenguard.app.ui.theme.StatusConnected
 import com.zenguard.app.ui.theme.StatusConnecting
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 enum class TProxyBackend(val label: String, val description: String) {
@@ -98,21 +102,30 @@ fun SettingsScreen(
     var localBackend by remember(tproxyBackend) { mutableStateOf(tproxyBackend) }
     var testNotificationSent by remember { mutableStateOf(false) }
 
-    // Detect Root environment
-    var detectedRoot by remember { mutableStateOf(RootStatus.NOT_ROOTED) }
-    LaunchedEffect(Unit) {
-        val hasRoot = try {
-            Shell.isAppGrantedRoot() == true
-        } catch (_: Throwable) {
-            false
-        }
+    val scope = rememberCoroutineScope()
 
-        detectedRoot = when {
-            hasRoot && (File("/data/adb/ksu").exists() || File("/system/bin/ksud").exists()) -> RootStatus.KERNEL_SU
-            hasRoot && (File("/data/adb/magisk").exists() || File("/sbin/.magisk").exists()) -> RootStatus.MAGISK
-            hasRoot -> RootStatus.MAGISK
-            else -> RootStatus.NOT_ROOTED
+    // Detect Root environment asynchronously (triggers KernelSU / Magisk su check properly)
+    var detectedRoot by remember { mutableStateOf(RootStatus.NOT_ROOTED) }
+
+    suspend fun refreshRootStatus() {
+        detectedRoot = withContext(Dispatchers.IO) {
+            val hasRoot = try {
+                val shell = Shell.getShell()
+                shell.isRoot
+            } catch (_: Throwable) {
+                false
+            }
+            when {
+                hasRoot && (File("/data/adb/ksu").exists() || File("/system/bin/ksud").exists() || File("/data/adb/ksud").exists()) -> RootStatus.KERNEL_SU
+                hasRoot && (File("/data/adb/magisk").exists() || File("/sbin/.magisk").exists()) -> RootStatus.MAGISK
+                hasRoot -> RootStatus.KERNEL_SU
+                else -> RootStatus.NOT_ROOTED
+            }
         }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshRootStatus()
     }
 
     LazyColumn(
@@ -157,6 +170,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
+                            modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
@@ -183,13 +197,15 @@ fun SettingsScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = if (detectedRoot.isRooted) "Transparent TProxy active"
+                                    text = if (detectedRoot.isRooted) "Transparent TProxy ready"
                                     else "Standard Android VpnService active",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
+
+                        Spacer(Modifier.width(8.dp))
 
                         // Root Badge Pill
                         Surface(
@@ -209,9 +225,12 @@ fun SettingsScreen(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = detectedRoot.label,
+                                    text = if (detectedRoot.isRooted) detectedRoot.label else "Not Rooted",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
                                     color = if (detectedRoot.isRooted) StatusConnected else StatusConnecting
                                 )
                             }
@@ -285,6 +304,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
+                            modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
@@ -316,13 +336,15 @@ fun SettingsScreen(
                             }
                         }
 
+                        Spacer(Modifier.width(8.dp))
+
                         // LSPosed Hook Pill
                         Surface(
                             shape = RoundedCornerShape(50),
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -333,9 +355,11 @@ fun SettingsScreen(
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Text(
-                                    text = "LSPosed Hook Ready",
+                                    text = "LSPosed Ready",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }

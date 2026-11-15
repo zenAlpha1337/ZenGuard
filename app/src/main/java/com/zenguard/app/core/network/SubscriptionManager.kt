@@ -1,5 +1,6 @@
 package com.zenguard.app.core.network
 
+import android.os.Build
 import com.zenguard.app.core.config.OutboundNode
 import com.zenguard.app.core.config.SubscriptionInfo
 import com.zenguard.app.core.config.UriParser
@@ -14,16 +15,23 @@ import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
+import java.security.MessageDigest
 
 /**
  * Handles fetching remote proxy subscriptions and measuring outbound node latencies in parallel.
  */
 object SubscriptionManager {
 
-    private const val DEFAULT_USER_AGENT = "ZenGuard/1.0 (Android; v2rayN/6.0)"
+    private const val DEFAULT_USER_AGENT = "Happ/2.0.0/android"
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 15_000
     private const val MAX_REDIRECTS = 5
+
+    private val deviceHwid: String by lazy {
+        val raw = "${Build.BOARD}|${Build.BRAND}|${Build.DEVICE}|${Build.HARDWARE}|${Build.MODEL}|${Build.PRODUCT}"
+        val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray())
+        digest.take(8).joinToString("") { "%02x".format(it) }
+    }
 
     /**
      * Fetches subscription content from a remote HTTP/HTTPS URL, follows redirects,
@@ -52,6 +60,10 @@ object SubscriptionManager {
                     instanceFollowRedirects = true
                     setRequestProperty("User-Agent", userAgent)
                     setRequestProperty("Accept", "*/*")
+                    setRequestProperty("x-hwid", deviceHwid)
+                    setRequestProperty("x-device-os", "Android")
+                    setRequestProperty("x-ver-os", Build.VERSION.RELEASE ?: "15")
+                    setRequestProperty("x-device-model", "${Build.MANUFACTURER} ${Build.MODEL}")
                 }
 
                 val responseCode = connection.responseCode

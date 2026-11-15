@@ -1,6 +1,7 @@
 package com.zenguard.app.core.config
 
 import android.net.Uri
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
 import java.util.Base64
@@ -50,6 +51,12 @@ object UriParser {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return emptyList()
 
+        // 0. Handle JSON subscription payloads (Happ/Xray array or sing-box JSON)
+        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+            val jsonNodes = parseJsonSubscription(trimmed)
+            if (jsonNodes.isNotEmpty()) return jsonNodes
+        }
+
         // 1. Try decoding as a Base64 subscription bundle first
         val resolvedText = if (!trimmed.startsWith("vless://") &&
             !trimmed.startsWith("vmess://") &&
@@ -62,6 +69,12 @@ object UriParser {
             decodeBase64Safe(trimmed) ?: trimmed
         } else {
             trimmed
+        }
+
+        val resolvedTrimmed = resolvedText.trim()
+        if (resolvedTrimmed.startsWith("[") || resolvedTrimmed.startsWith("{")) {
+            val jsonNodes = parseJsonSubscription(resolvedTrimmed)
+            if (jsonNodes.isNotEmpty()) return jsonNodes
         }
 
         // 2. Parse line by line
@@ -450,6 +463,116 @@ object UriParser {
                 val bytes = fn()
                 return String(bytes, Charsets.UTF_8)
             } catch (_: Exception) {}
+        }
+        return null
+    }
+
+    private fun parseJsonSubscription(jsonText: String): List<OutboundNode> {
+        val nodes = mutableListOf<OutboundNode>()
+        try {
+            if (jsonText.startsWith("[")) {
+                val arr = JSONArray(jsonText)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    parseXrayConfigObject(obj)?.let { nodes.add(it) }
+                }
+            } else if (jsonText.startsWith("{")) {
+                val obj = JSONObject(jsonText)
+                if (obj.has("outbounds")) {
+                    parseXrayConfigObject(obj)?.let { nodes.add(it) }
+                }
+            }
+        } catch (_: Exception) {}
+        return nodes
+    }
+
+    private fun parseXrayConfigObject(root: JSONObject): OutboundNode? {
+        val remarks = root.optString("remarks", "").ifBlank { "Node" }
+        val outbounds = root.optJSONArray("outbounds") ?: return null
+        for (i in 0 until outbounds.length()) {
+            val ob = outbounds.optJSONObject(i) ?: continue
+            val proto = ob.optString("protocol", ob.optString("type", "")).lowercase()
+            if (proto in listOf("freedom", "blackhole", "dns", "direct", "block")) continue
+
+            val settings = ob.optJSONObject("settings")
+            val stream = ob.optJSONObject("streamSettings")
+            val network = stream?.optString("network", "tcp")?.lowercase() ?: "tcp"
+            val security = stream?.optString("security", "none")?.lowercase() ?: "none"
+
+            val tlsObj = stream?.optJSONObject("tlsSettings")
+            val realityObj = stream?.optJSONObject("realitySettings")
+            val sni = realityObj?.optString("serverName")?.takeIf { it.isNotBlank() }
+                ?: tlsObj?.optString("serverName")?.takeIf { it.isNotBlank() }
+            val fp = realityObj?.optString("fingerprint")?.takeIf { it.isNotBlank() }
+                ?: tlsObj?.optString("fingerprint")?.takeIf { it.isNotBlank() }
+                ?: "chrome"
+
+            val wsSettings = stream?.optJSONObject("wsSettings")
+            val grpcSettings = stream?.optJSONObject("grpcSettings")
+
+            when (proto) {
+                "vless", "vmess" -> {
+                    val vnext = settings?.optJSONArray("vnext")?.optJSONObject(0)
+                    val server = vnext?.optString("address") ?: ob.optString("server", "")
+                    val port = vnext?.optInt("port", 443) ?: ob.optInt("server_port", 443)
+                    val user = vnext?.optJSONArray("users")?.optJSONObject(0)
+                    val uuid = user?.optString("id") ?: ob.optString("uuid", "")
+                    val flow = user?.optString("flow")?.takeIf { it.isNotBlank() }
+                    if (server.isBlank() || uuid.isBlank()) continue
+                    return OutboundNode(
+                        name = remarks,
+                        protocol = proto,
+                        server = server,
+                        port = port,
+                        uuid = uuid,
+                        security = security,
+                        sni = sni,
+                        fingerprint = fp,
+                        publicKey = realityObj?.optString("publicKey")?.takeIf { it.isNotBlank() },
+                        shortId = realityObj?.optString("shortId")?.takeIf { it.isNotBlank() },
+                        spiderX = realityObj?.optString("spiderX")?.takeIf { it.isNotBlank() },
+                        flow = flow,
+                        network = network,
+                        wsPath = wsSettings?.optString("path")?.takeIf { it.isNotBlank() },
+                        grpcServiceName = grpcSettings?.optString("serviceName")?.takeIf { it.isNotBlank() }
+                    )
+                }
+                "trojan" -> {
+                    val srv = settings?.optJSONArray("servers")?.optJSONObject(0)
+                    val server = srv?.optString("address") ?: ob.optString("server", "")
+                    val port = srv?.optInt("port", 443) ?: ob.optInt("server_port", 443)
+                    val password = srv?.optString("password") ?: ob.optString("password", "")
+                    if (server.isBlank() || password.isBlank()) continue
+                    return OutboundNode(
+                        name = remarks,
+                        protocol = "trojan",
+                        server = server,
+                        port = port,
+                        password = password,
+                        security = security,
+                        sni = sni,
+                        fingerprint = fp,
+                        network = network
+                    )
+                }
+                "shadowsocks" -> {
+                    val srv = settings?.optJSONArray("servers")?.optJSONObject(0)
+                    val server = srv?.optString("address") ?: ob.optString("server", "")
+                    val port = srv?.optInt("port", 8388) ?: ob.optInt("server_port", 8388)
+                    val password = srv?.optString("password") ?: ob.optString("password", "")
+                    val method = srv?.optString("method") ?: ob.optString("method", "aes-256-gcm")
+                    if (server.isBlank()) continue
+                    return OutboundNode(
+                        name = remarks,
+                        protocol = "shadowsocks",
+                        server = server,
+                        port = port,
+                        password = password,
+                        cipher = method,
+                        security = "none"
+                    )
+                }
+            }
         }
         return null
     }

@@ -1,8 +1,13 @@
 package com.zenguard.app.ui.navigation
 
+import android.app.Activity
+import android.net.VpnService
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AltRoute
+import androidx.compose.material.icons.automirrored.rounded.AltRoute
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
@@ -15,10 +20,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -28,11 +31,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.zenguard.app.core.config.UriParser
 import com.zenguard.app.core.data.ProfileRepository
+import com.zenguard.app.core.engine.ZenCoreEngine
 import com.zenguard.app.core.model.ProxyMode
-import com.zenguard.app.core.model.TrafficStats
 import com.zenguard.app.core.model.VpnState
 import com.zenguard.app.core.network.SubscriptionManager
-import com.zenguard.app.core.nowbar.NowBarNotificationManager
 import com.zenguard.app.core.nowbar.NowBarStateBridge
 import com.zenguard.app.ui.screens.home.HomeScreen
 import com.zenguard.app.ui.screens.profiles.ProfilesScreen
@@ -43,7 +45,7 @@ import kotlinx.coroutines.launch
 private enum class ZenTab(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Home", Icons.Rounded.Home),
     PROFILES("profiles", "Profiles", Icons.Rounded.Dns),
-    ROUTING("routing", "Routing", Icons.Rounded.AltRoute),
+    ROUTING("routing", "Routing", Icons.AutoMirrored.Rounded.AltRoute),
     SETTINGS("settings", "Settings", Icons.Rounded.Settings)
 }
 
@@ -56,25 +58,56 @@ fun ZenNavGraph() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val repository = remember(context) { ProfileRepository.getInstance(context) }
+    val coreEngine = remember(context) {
+        ZenCoreEngine.apply { attachContext(context) }
+    }
 
     val nodes by repository.nodes.collectAsState()
     val activeNodeId by repository.activeNodeId.collectAsState()
     val selectedMode by repository.proxyMode.collectAsState()
     val routingConfig by repository.routingConfig.collectAsState()
 
-    var vpnState by remember { mutableStateOf(VpnState.DISCONNECTED) }
+    val vpnState by coreEngine.state.collectAsState()
+    val trafficStats by coreEngine.traffic.collectAsState()
+
     val activeNode = nodes.firstOrNull { it.id == activeNodeId } ?: nodes.firstOrNull()
-    val activeProfileName = activeNode?.name ?: "Default VLESS Reality"
+    val activeProfileName = activeNode?.name ?: "No Profile"
+
+    fun startCoreEngine() {
+        val node = activeNode ?: run {
+            Toast.makeText(context, "Add or select a profile first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        coreEngine.start(
+            mode = selectedMode,
+            profile = node.toVpnProfile(),
+            routingConfig = routingConfig.toEngineRoutingConfig()
+        )
+    }
+
+    val vpnPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            startCoreEngine()
+        } else {
+            Toast.makeText(context, "VPN permission denied", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     fun toggleVpn() {
-        vpnState = if (vpnState == VpnState.CONNECTED) VpnState.DISCONNECTED else VpnState.CONNECTED
-        NowBarNotificationManager.updateStatus(
-            context = context,
-            state = vpnState,
-            mode = selectedMode,
-            profileName = activeProfileName,
-            speedSummary = if (vpnState == VpnState.CONNECTED) "↓ 1.2 MB/s ↑ 140 KB/s" else "Idle"
-        )
+        if (vpnState == VpnState.CONNECTED || vpnState == VpnState.CONNECTING) {
+            coreEngine.stop()
+            return
+        }
+        if (selectedMode == ProxyMode.VPN_TUN) {
+            val prepareIntent = VpnService.prepare(context)
+            if (prepareIntent != null) {
+                vpnPermissionLauncher.launch(prepareIntent)
+                return
+            }
+        }
+        startCoreEngine()
     }
 
     DisposableEffect(Unit) {
@@ -111,11 +144,7 @@ fun ZenNavGraph() {
                 HomeScreen(
                     vpnState = vpnState,
                     selectedMode = selectedMode,
-                    trafficStats = if (vpnState == VpnState.CONNECTED) {
-                        TrafficStats(uplinkBps = 140_000, downlinkBps = 1_200_000)
-                    } else {
-                        TrafficStats()
-                    },
+                    trafficStats = trafficStats,
                     activeProfileName = activeProfileName,
                     onToggleConnection = { toggleVpn() },
                     onSelectMode = { repository.setProxyMode(it) }
@@ -130,13 +159,24 @@ fun ZenNavGraph() {
                         val parsed = UriParser.parseBatch(raw)
                         if (parsed.isNotEmpty()) {
                             repository.addNodes(parsed)
+                            Toast.makeText(context, "Imported ${parsed.size} node(s)", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "No valid nodes found", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onImportSubscription = { url ->
                         scope.launch {
                             runCatching { SubscriptionManager.fetchSubscription(url) }
                                 .onSuccess { fetched ->
-                                    if (fetched.isNotEmpty()) repository.addNodes(fetched)
+                                    if (fetched.isNotEmpty()) {
+                                        repository.addNodes(fetched)
+                                        Toast.makeText(context, "Loaded ${fetched.size} node(s)", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Subscription returned 0 nodes", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .onFailure { err ->
+                                    Toast.makeText(context, "Sub error: ${err.message}", Toast.LENGTH_LONG).show()
                                 }
                         }
                     },
