@@ -291,13 +291,14 @@ private fun ServerProfileCard(
 
                 Spacer(Modifier.width(12.dp))
 
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
                             text = profile.name,
+                            modifier = Modifier.weight(1f, fill = false),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -367,7 +368,9 @@ private fun ProtocolBadge(protocol: String) {
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = badgeColor
+            color = badgeColor,
+            maxLines = 1,
+            softWrap = false
         )
     }
 }
