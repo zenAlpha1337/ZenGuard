@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zenguard.app.core.model.ProxyMode
 import com.zenguard.app.core.model.TrafficStats
@@ -66,6 +67,7 @@ fun HomeScreen(
     activeProfileName: String,
     onToggleConnection: () -> Unit,
     onSelectMode: (ProxyMode) -> Unit,
+    statusDetail: String? = null,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -115,7 +117,7 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
                 Text(
                     text = "ZenGuard",
                     style = MaterialTheme.typography.headlineMedium,
@@ -138,7 +140,19 @@ fun HomeScreen(
                         color = accentColor
                     )
                 }
+                if (!statusDetail.isNullOrBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = statusDetail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
+
+            Spacer(Modifier.width(12.dp))
 
             Surface(
                 shape = RoundedCornerShape(50),
