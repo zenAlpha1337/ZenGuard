@@ -231,52 +231,13 @@ object RootEngineController {
         // Check user override
         customBinaryPath?.let { customPath ->
             val file = File(customPath)
-            if (file.exists()) return file
-        }
-
-        // 1. App's nativeLibraryDir (e.g. libsing-box.so)
-        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-        val candidateNames = listOf("libsing-box.so", "libsingbox.so", "sing-box")
-        for (name in candidateNames) {
-            val file = File(nativeDir, name)
-            if (file.exists()) return file
-        }
-
-        // 2. App internal files directories
-        val filesDir = context.filesDir
-        val internalCandidates = listOf(
-            File(filesDir, "sing-box"),
-            File(filesDir, "libsing-box.so"),
-            File(File(filesDir, "bin"), "sing-box")
-        )
-        for (file in internalCandidates) {
-            if (file.exists()) return file
-        }
-
-        // 3. Common rooted device binaries & paths
-        val systemPaths = listOf(
-            "/data/local/tmp/sing-box",
-            "/system/bin/sing-box",
-            "/system/xbin/sing-box"
-        )
-        for (path in systemPaths) {
-            val file = File(path)
-            if (file.exists()) return file
-        }
-
-        // 4. Query PATH via root shell
-        try {
-            val whichRes = RootShellManager.exec("which sing-box")
-            if (whichRes.isSuccess && whichRes.out.isNotEmpty()) {
-                val foundPath = whichRes.out.first().trim()
-                if (foundPath.isNotEmpty()) {
-                    val file = File(foundPath)
-                    if (file.exists()) return file
-                }
+            if (file.exists()) {
+                RootShellManager.exec("chmod 755 \"${file.absolutePath}\"")
+                return file
             }
-        } catch (_: Exception) {}
+        }
 
-        return null
+        return RootShellManager.resolveSingBoxBinary(context)
     }
 
     /**
