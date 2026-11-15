@@ -125,7 +125,7 @@ fun ZenNavGraph() {
                 ProfilesScreen(
                     profiles = nodes.map { it.toVpnProfile() },
                     selectedProfileId = activeNodeId,
-                    onSelectProfile = { repository.setActiveNode(it.id) },
+                    onSelectProfile = { repository.setActiveNodeId(it.id) },
                     onImportUri = { raw ->
                         val parsed = UriParser.parseBatch(raw)
                         if (parsed.isNotEmpty()) {
@@ -140,18 +140,18 @@ fun ZenNavGraph() {
                                 }
                         }
                     },
-                    onDeleteProfile = { repository.removeNode(it) },
+                    onDeleteProfile = { repository.deleteNode(it) },
                     onPingProfile = { id ->
                         val target = nodes.firstOrNull { it.id == id } ?: return@ProfilesScreen
                         scope.launch {
                             val tested = SubscriptionManager.measureLatency(listOf(target))
-                            tested.firstOrNull()?.let { repository.updateLatency(it.id, it.latencyMs) }
+                            repository.updateNodesLatency(tested)
                         }
                     },
                     onPingAll = {
                         scope.launch {
                             val tested = SubscriptionManager.measureLatency(nodes)
-                            tested.forEach { repository.updateLatency(it.id, it.latencyMs) }
+                            repository.updateNodesLatency(tested)
                         }
                     }
                 )

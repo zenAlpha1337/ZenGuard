@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -264,10 +265,10 @@ private fun ServerProfileCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
+            .border(cardBorder, RoundedCornerShape(20.dp))
             .clickable(onClick = onSelect),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
-        border = cardBorder
+        colors = CardDefaults.elevatedCardColors(containerColor = cardColor)
     ) {
         Row(
             modifier = Modifier
