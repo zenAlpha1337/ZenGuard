@@ -87,10 +87,16 @@ object NowBarNotificationManager {
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentTitle("ZenGuard • $profileName")
             .setContentText("$statusLabel | $speedSummary")
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setOngoing(state == VpnState.CONNECTED || state == VpnState.CONNECTING)
             .setOnlyAlertOnce(true)
             .setContentIntent(openAppIntent)
             .addAction(0, actionLabel, toggleIntent)
+            .setUsesChronometer(state == VpnState.CONNECTED)
+
+        if (state == VpnState.CONNECTED) {
+            builder.setWhen(System.currentTimeMillis())
+        }
 
         // Request Live Update / One UI Now Bar promotion via standard extras
         builder.extras.putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true)
