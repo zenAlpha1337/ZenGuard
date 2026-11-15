@@ -69,6 +69,7 @@ fun ZenNavGraph() {
 
     val vpnState by coreEngine.state.collectAsState()
     val trafficStats by coreEngine.traffic.collectAsState()
+    val engineLogs by coreEngine.logs.collectAsState()
 
     val activeNode = nodes.firstOrNull { it.id == activeNodeId } ?: nodes.firstOrNull()
     val activeProfileName = activeNode?.name ?: "No Profile"
@@ -146,6 +147,7 @@ fun ZenNavGraph() {
                     selectedMode = selectedMode,
                     trafficStats = trafficStats,
                     activeProfileName = activeProfileName,
+                    statusDetail = engineLogs.lastOrNull(),
                     onToggleConnection = { toggleVpn() },
                     onSelectMode = { repository.setProxyMode(it) }
                 )
@@ -166,7 +168,7 @@ fun ZenNavGraph() {
                     },
                     onImportSubscription = { url ->
                         scope.launch {
-                            runCatching { SubscriptionManager.fetchSubscription(url) }
+                            runCatching { SubscriptionManager.fetchSubscription(url, context = context) }
                                 .onSuccess { fetched ->
                                     if (fetched.isNotEmpty()) {
                                         repository.addNodes(fetched)
